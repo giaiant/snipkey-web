@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const { parseSnippets, serializeSnippets, extractPreamble, validateSnippets } = window.SnipkeyParser;
+  const { parseSnippets, serializeSnippets, extractPreamble, validateSnippets, parseCategories, setCategories, categoryNameError } = window.SnipkeyParser;
   const L = window.SnipkeyLib;
   const { mergeSnippets } = window.SnipkeyMerge;
   const { DEFAULT_SETTINGS, filterSnippets, countTags, existingTags } = L;
@@ -13,6 +13,7 @@
   const KEY_CACHE = 'snipkey.cache';
   const KEY_DRAFT = 'snipkey.draft';
   const KEY_TAGS = 'snipkey.tags';
+  const KEY_CAT_OPEN = 'snipkey.category';
 
   // 開発用のローカル読み書きは、ローカルの開発サーバで開いた時だけ選べる
   const DEV_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
@@ -47,6 +48,7 @@
   let saving = false;
   let uidSeq = 0;
   let selectedTags = []; // 絞り込みに選んだタグ（localStorage に保つ。いまの件に無いタグは無視する）
+  let openCategory = null; // 開いているカテゴリ（localStorage に保つ。無くなったカテゴリなら閉じた扱い）
 
   // ---- 保存 ----
   function readJson(key) {
@@ -290,10 +292,104 @@
     return b;
   }
 
+  // ---- カテゴリ（説明文の塊で定義。1段目でカテゴリ、2段目でタグを選ぶ） ----
+  const CAT_ALL = '*all';
+  const CAT_OTHER = '*other';
+  const normTag = (t) => t.normalize('NFKC').toLowerCase();
+
+  function currentPreamble() {
+    if (draft && !viewLatest) return draft.preamble;
+    return remote.preamble;
+  }
+
+  // 表示するカテゴリ。定義にあってデータに無いタグは出さず、タグが1つも無いカテゴリも出さない
+  function categoryGroups() {
+    const counts = countTags(currentItems());
+    const byKey = new Map(counts.map((x) => [normTag(x.tag), x]));
+    const defs = parseCategories(currentPreamble());
+    const defined = new Set();
+    const groups = [];
+    for (const c of defs) {
+      const tags = [];
+      for (const t of c.tags) {
+        defined.add(normTag(t));
+        const x = byKey.get(normTag(t));
+        if (x && !tags.includes(x)) tags.push(x);
+      }
+      if (tags.length) groups.push({ key: 'cat:' + c.name, name: c.name, tags: tags });
+    }
+    const other = counts.filter((x) => !defined.has(normTag(x.tag)));
+    const all = [{ key: CAT_ALL, name: 'すべて', tags: counts }];
+    if (defs.length && other.length) groups.push({ key: CAT_OTHER, name: 'その他', tags: other });
+    return { hasDefs: defs.length > 0, groups: defs.length ? all.concat(groups) : all };
+  }
+
+  function setOpenCategory(key) {
+    openCategory = key;
+    write(KEY_CAT_OPEN, key === null ? null : JSON.stringify(key));
+    render();
+  }
+
+  function smallButton(text, label, onClick, className) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tag ' + (className || '');
+    b.textContent = text;
+    if (label) b.setAttribute('aria-label', label);
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
   function renderTagStrip() {
-    const tags = countTags(currentItems());
-    els.tagStrip.hidden = tags.length === 0;
-    els.tagStrip.replaceChildren(...tags.map((x) => tagButton(x.tag, { count: x.count })));
+    const g = categoryGroups();
+    const counts = g.groups[0].tags;
+    els.tagStrip.hidden = counts.length === 0;
+    if (counts.length === 0) { els.tagStrip.replaceChildren(); return; }
+    const editCats = () => openCategories();
+    // 塊が無ければ、カテゴリは「すべて」だけ。これまでどおりタグを全部並べる
+    if (!g.hasDefs) {
+      const row = document.createElement('div');
+      row.className = 'tag-row';
+      row.append(...counts.map((x) => tagButton(x.tag, { count: x.count })));
+      row.append(smallButton('＋ カテゴリ', 'カテゴリを作る', editCats, 'cat-edit'));
+      els.tagStrip.replaceChildren(row);
+      return;
+    }
+    const active = activeTags().map(normTag);
+    const open = g.groups.find((x) => x.key === openCategory) || null;
+    const catRow = document.createElement('div');
+    catRow.className = 'cat-row';
+    catRow.setAttribute('role', 'group');
+    catRow.setAttribute('aria-label', 'カテゴリ');
+    for (const grp of g.groups) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cat';
+      const isOpen = open === grp;
+      b.setAttribute('aria-expanded', String(isOpen));
+      const chosen = grp.tags.filter((x) => active.includes(normTag(x.tag))).length;
+      if (chosen) b.classList.add('has-active');
+      const name = document.createElement('span');
+      name.textContent = grp.name;
+      const n = document.createElement('span');
+      n.className = 'count';
+      n.textContent = chosen ? chosen + '/' + grp.tags.length : String(grp.tags.length);
+      b.append(name, n);
+      b.setAttribute('aria-label', grp.name + '（タグ ' + grp.tags.length + ' 個' + (chosen ? '、' + chosen + ' 個を選択中' : '') + '）' + (isOpen ? 'を閉じる' : 'のタグを出す'));
+      b.addEventListener('click', () => setOpenCategory(isOpen ? null : grp.key));
+      catRow.append(b);
+    }
+    catRow.append(smallButton('編集', 'カテゴリを編集', editCats, 'cat-edit'));
+    const parts = [catRow];
+    if (open) {
+      const row = document.createElement('div');
+      row.className = 'tag-row';
+      row.setAttribute('role', 'group');
+      row.setAttribute('aria-label', open.name + ' のタグ');
+      row.append(...open.tags.map((x) => tagButton(x.tag, { count: x.count })));
+      parts.push(row);
+    }
+    els.tagStrip.replaceChildren(...parts);
   }
 
   function renderActiveTags() {
@@ -680,8 +776,14 @@
       remote: summarize(c.remote),
     }));
     if (res.preambleConflict) {
-      rows.push({ name: 'preamble', title: '説明文（最初の ## より前）', kind: '手元と最新の両方で変更',
-        local: res.preambleConflict.local.slice(0, 80), remote: res.preambleConflict.remote.slice(0, 80) });
+      // カテゴリの違いなら、カテゴリの中身を並べる。そうでなければ説明文の先頭を出す
+      const lc = parseCategories(res.preambleConflict.local);
+      const rc = parseCategories(res.preambleConflict.remote);
+      const catText = (cs) => cs.length ? cs.map((c) => c.name + '：' + c.tags.join(', ')).join('\n') : '（カテゴリなし）';
+      const byCats = JSON.stringify(lc) !== JSON.stringify(rc);
+      rows.push({ name: 'preamble', title: byCats ? 'カテゴリ' : '説明文（最初の ## より前）', kind: '手元と最新の両方で変更',
+        local: byCats ? catText(lc) : res.preambleConflict.local.slice(0, 80),
+        remote: byCats ? catText(rc) : res.preambleConflict.remote.slice(0, 80) });
     }
     for (const row of rows) {
       const fs = document.createElement('fieldset');
@@ -928,6 +1030,123 @@
     if (formChanged()) { ev.preventDefault(); ev.returnValue = ''; }
   });
 
+  // ---- カテゴリの編集 ----
+  const catEls = {
+    dialog: $('categories'), form: $('categories-form'), list: $('cat-list'),
+    add: $('cat-add'), error: $('cat-error'), cancel: $('cat-cancel'), open: $('open-categories'),
+  };
+  let catWork = []; // 編集中のカテゴリ [{ name, tags }]
+
+  // チェックの候補：データにあるタグ（件数の多い順）と、定義にだけあるタグ
+  function categoryTagChoices() {
+    const list = countTags(currentItems()).map((x) => ({ tag: x.tag, count: x.count, missing: false }));
+    for (const c of catWork) {
+      for (const t of c.tags) {
+        if (!list.some((x) => normTag(x.tag) === normTag(t))) list.push({ tag: t, count: 0, missing: true });
+      }
+    }
+    return list;
+  }
+
+  function renderCategoryEditor() {
+    const choices = categoryTagChoices();
+    catEls.list.replaceChildren(...catWork.map((c, i) => {
+      const card = document.createElement('fieldset');
+      card.className = 'cat-card';
+      const head = document.createElement('div');
+      head.className = 'cat-head';
+      const name = document.createElement('input');
+      name.value = c.name;
+      name.placeholder = 'カテゴリの名前';
+      name.setAttribute('aria-label', (i + 1) + ' 番目のカテゴリの名前');
+      name.autocomplete = 'off';
+      name.addEventListener('input', () => { c.name = name.value; validateCategories(); });
+      const btn = (svgPath, label, onClick, disabled) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'icon-btn small'; b.setAttribute('aria-label', label); b.title = label;
+        b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + svgPath + '"/></svg>';
+        b.disabled = !!disabled;
+        b.addEventListener('click', onClick);
+        return b;
+      };
+      head.append(
+        name,
+        btn('M12 19V5M6 11l6-6 6 6', '上へ', () => { catWork.splice(i - 1, 0, catWork.splice(i, 1)[0]); renderCategoryEditor(); }, i === 0),
+        btn('M12 5v14M6 13l6 6 6-6', '下へ', () => { catWork.splice(i + 1, 0, catWork.splice(i, 1)[0]); renderCategoryEditor(); }, i === catWork.length - 1),
+        btn('M6 6l12 12M18 6L6 18', '「' + (c.name || '名前なし') + '」を削除', () => { catWork.splice(i, 1); renderCategoryEditor(); })
+      );
+      const tags = document.createElement('div');
+      tags.className = 'cat-tags';
+      for (const ch of choices) {
+        const label = document.createElement('label');
+        label.className = 'cat-tag' + (ch.missing ? ' missing' : '');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = c.tags.some((t) => normTag(t) === normTag(ch.tag));
+        cb.addEventListener('change', () => {
+          c.tags = cb.checked ? c.tags.concat([ch.tag]) : c.tags.filter((t) => normTag(t) !== normTag(ch.tag));
+        });
+        const text = document.createElement('span');
+        text.textContent = '#' + ch.tag + (ch.missing ? '（データに無い）' : '');
+        label.append(cb, text);
+        tags.append(label);
+      }
+      if (!choices.length) {
+        const p = document.createElement('p');
+        p.className = 'hint';
+        p.textContent = 'まだタグがありません。件にタグを付けると、ここで選べます。';
+        tags.append(p);
+      }
+      card.append(head, tags);
+      return card;
+    }));
+    validateCategories();
+  }
+
+  function validateCategories() {
+    let msg = '';
+    const seen = new Set();
+    for (const c of catWork) {
+      const err = categoryNameError(c.name);
+      if (err) { msg = err + (c.name.trim() ? '（' + c.name.trim() + '）' : ''); break; }
+      if (seen.has(c.name.trim())) { msg = '「' + c.name.trim() + '」が重複しています'; break; }
+      seen.add(c.name.trim());
+    }
+    catEls.error.textContent = msg;
+    catEls.error.hidden = !msg;
+    return !msg;
+  }
+
+  function openCategories() {
+    viewLatest = false;
+    catWork = parseCategories(currentPreamble()).map((c) => ({ name: c.name, tags: c.tags.slice() }));
+    if (els.dialog.open) els.dialog.close();
+    renderCategoryEditor();
+    catEls.dialog.showModal();
+  }
+
+  catEls.add.addEventListener('click', () => {
+    catWork.push({ name: '', tags: [] });
+    renderCategoryEditor();
+    const inputs = catEls.list.querySelectorAll('.cat-head input');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+  catEls.cancel.addEventListener('click', () => catEls.dialog.close());
+  catEls.open.addEventListener('click', openCategories);
+  catEls.form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    if (!validateCategories()) return;
+    const cats = catWork.map((c) => ({ name: c.name.trim(), tags: c.tags }));
+    let next;
+    try { next = setCategories(currentPreamble(), cats); } catch (e) { catEls.error.textContent = e.message; catEls.error.hidden = false; return; }
+    catEls.dialog.close();
+    if (next === currentPreamble()) return;
+    ensureDraft().preamble = next;
+    persistDraft();
+    render();
+    toast('カテゴリを反映しました。「保存」で書き込みます');
+  });
+
   // ---- 設定 ----
   function updateTokenState() {
     const has = getToken() !== '';
@@ -992,6 +1211,8 @@
   restoreDraft();
   const savedTags = readJson(KEY_TAGS);
   if (Array.isArray(savedTags)) selectedTags = savedTags.filter((t) => typeof t === 'string');
+  const savedCat = readJson(KEY_CAT_OPEN);
+  if (typeof savedCat === 'string') openCategory = savedCat;
   const s0 = getSettings();
   if (!showCache('')) { render(); setStatus('読み込み中…'); }
   if (draft && draft.pending) showMergeChoices();

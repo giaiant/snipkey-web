@@ -144,9 +144,25 @@
       </label>
       <div class="actions">
         <button id="forget-token" type="button" class="btn ghost danger">PAT を消す</button>
+        <button id="open-categories" type="button" class="btn ghost">カテゴリを編集</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="cancel-settings">閉じる</button>
         <button type="submit" class="btn primary" value="save">保存して読み込む</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="categories" class="sheet" aria-labelledby="categories-title">
+    <form id="categories-form" method="dialog" novalidate>
+      <h2 id="categories-title">カテゴリ</h2>
+      <p class="hint">タグをカテゴリにまとめると、一覧の上でカテゴリ → タグの2タップで絞り込めます。1つのタグを複数のカテゴリに入れてもかまいません。どこにも入れていないタグは「その他」に出ます。OK で下書きに反映し、上の「保存」で書き込みます（<code>data/snippets.md</code> の説明文の中に書きます）。</p>
+      <div id="cat-list" class="cat-list"></div>
+      <button id="cat-add" type="button" class="btn ghost">＋ カテゴリを追加</button>
+      <p id="cat-error" class="field-error" hidden></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button id="cat-cancel" type="button" class="btn ghost">キャンセル</button>
+        <button type="submit" class="btn primary">OK</button>
       </div>
     </form>
   </dialog>

@@ -326,13 +326,47 @@ body.tag-filter { --bar-h: 112px; }
 .meta { gap: 6px; margin-top: 6px; }
 .meta .chip.run { line-height: 30px; }
 
-.tag-strip {
-  display: flex; gap: 6px;
-  margin: 0 -12px 10px; padding: 2px 12px 6px;
-  overflow-x: auto; overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-}
+/* 一覧の上：1段目にカテゴリ、2段目に開いたカテゴリのタグ。どちらも折り返して全部出す */
+.tag-strip { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 12px; }
+.cat-row, .tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag-row { padding: 8px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+.cat-row + .tag-row { margin-top: -2px; }
 .tag-strip .tag { min-height: 36px; padding: 0 12px 0 14px; }
+.cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 38px; padding: 0 12px 0 14px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.cat .count {
+  min-width: 20px; padding: 2px 6px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 400; text-align: center;
+}
+.cat[aria-expanded="true"] { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+.cat.has-active .count { background: var(--accent); color: var(--accent-text); }
+.cat:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tag.cat-edit { background: transparent; border: 1px dashed var(--border); color: var(--muted); }
+
+/* カテゴリの編集 */
+.cat-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 8px; }
+.cat-card { margin: 0; padding: 8px 10px 10px; border: 1px solid var(--border); border-radius: 12px; }
+.cat-head { display: flex; align-items: center; gap: 2px; }
+.cat-head input {
+  flex: 1; min-width: 0; height: 40px; padding: 0 10px; margin-right: 4px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); color: var(--text); font: inherit; font-size: 16px;
+}
+.cat-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cat-tag {
+  display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 6px !important;
+  min-height: 36px; padding: 0 12px 0 8px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text) !important; font-size: 14px !important; cursor: pointer;
+}
+.cat-tag:has(input:checked) { border-color: var(--accent); background: var(--draft-bg); color: var(--draft-text) !important; }
+.cat-tag input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.cat-tag.missing { border-style: dashed; }
+#categories .sheet, #categories { max-height: 92vh; overflow: auto; }
 
 .active-tags {
   display: flex; gap: 6px; align-items: center;
@@ -346,6 +380,7 @@ body.tag-filter { --bar-h: 112px; }
 @media (pointer: coarse) {
   .meta .tag { min-height: 34px; }
   .tag-strip .tag { min-height: 40px; }
+  .cat { min-height: 42px; }
 }
 
 /* 保存が食い違った時に、当たる件を選ぶ */

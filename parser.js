@@ -153,7 +153,78 @@
     return parts.join('\n\n') + '\n';
   }
 
+  // ---- カテゴリ（説明文の中の HTML コメントの塊） ----
+  // <!-- snipkey:categories
+  // プロンプト: Sプロンプト, Lプロンプト
+  // -->
+  // 1行が1カテゴリ（「名前: タグ, タグ」）。順番が表示の順。説明文は Windows 側では無視されるので影響しない。
+  const CAT_BLOCK = /<!--[ \t]*snipkey:categories[ \t]*\n([\s\S]*?)-->/;
+
+  // 名前に使えない書き方（行の形や HTML コメントが壊れる）
+  function categoryNameError(name) {
+    const n = String(name).trim();
+    if (n === '') return 'カテゴリの名前が空です';
+    if (/[:：,，\r\n]/.test(n)) return '名前に「:」「,」や改行は使えません';
+    if (n.startsWith('#')) return '名前を「#」で始めることはできません';
+    if (n.includes('--')) return '名前に「--」は使えません';
+    return '';
+  }
+
+  // 説明文からカテゴリを読む。塊が無ければ []。不正な行（「:」が無い・名前が空・同じ名前の2回目）は無視する
+  function parseCategories(preamble) {
+    const m = CAT_BLOCK.exec(toLf(preamble || ''));
+    if (!m) return [];
+    const out = [];
+    for (const raw of m[1].split('\n')) {
+      const line = raw.trim();
+      if (line === '') continue;
+      const lm = /^([^:：]+)[:：](.*)$/.exec(line);
+      if (!lm) continue;
+      const name = lm[1].trim();
+      if (categoryNameError(name) || out.some((c) => c.name === name)) continue;
+      const tags = [];
+      for (const t of lm[2].split(/[,，、]/).map((x) => x.trim()).filter(Boolean)) {
+        if (!tags.includes(t)) tags.push(t);
+      }
+      out.push({ name: name, tags: tags });
+    }
+    return out;
+  }
+
+  function formatCategoryBlock(categories) {
+    const lines = categories.map((c) => c.name.trim() + ': ' + c.tags.map((t) => String(t).trim()).filter(Boolean).join(', '));
+    return '<!-- snipkey:categories\n' + lines.join('\n') + (lines.length ? '\n' : '') + '-->';
+  }
+
+  // 説明文の中の塊だけを書き換える。塊が無ければ末尾に足し、カテゴリが空なら塊を消す。ほかの部分はそのまま残す
+  function setCategories(preamble, categories) {
+    const text = toLf(preamble || '');
+    for (const c of categories) {
+      const err = categoryNameError(c.name);
+      if (err) throw new Error(err + '（' + c.name + '）');
+      for (const t of c.tags) {
+        if (/[,，、\r\n]/.test(t) || String(t).includes('-->')) throw new Error('タグ「' + t + '」はカテゴリに書けません');
+      }
+    }
+    const m = CAT_BLOCK.exec(text);
+    if (categories.length === 0) {
+      if (!m) return text;
+      // 塊を消し、前後の空行を1つにまとめる
+      const before = text.slice(0, m.index).replace(/\n+$/, '');
+      const after = text.slice(m.index + m[0].length).replace(/^\n+/, '');
+      const joined = before && after ? before + '\n\n' + after : before || after;
+      return joined && /\n$/.test(text) && !/\n$/.test(joined) ? joined + '\n' : joined;
+    }
+    const block = formatCategoryBlock(categories);
+    if (m) return text.slice(0, m.index) + block + text.slice(m.index + m[0].length);
+    const head = text.replace(/\n+$/, '');
+    return head === '' ? block + '\n' : head + '\n\n' + block + '\n';
+  }
+
   return {
+    parseCategories: parseCategories,
+    setCategories: setCategories,
+    categoryNameError: categoryNameError,
     parseSnippets: parseSnippets,
     extractPreamble: extractPreamble,
     hasFenceLine: hasFenceLine,
