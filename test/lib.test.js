@@ -89,3 +89,37 @@ test('書き込みの失敗を分類する', () => {
   assert.equal(lib.classifyWriteError(404).kind, 'notfound');
   assert.equal(lib.classifyWriteError(500).kind, 'other');
 });
+
+// ---- タグで絞り込む ----
+const tagItems = [
+  { title: 'a', tags: ['git', 'run'], body: 'x' },
+  { title: 'b', tags: ['prompt'], body: 'git について' },
+  { title: 'c', tags: ['Git', 'prompt', 'review'], body: 'y' },
+  { title: 'd', tags: [], body: 'z' },
+];
+
+test('タグは件数の多い順、同数なら最初に出た順。大文字・小文字の違いは同じタグ', () => {
+  assert.deepEqual(lib.countTags(tagItems), [
+    { tag: 'git', count: 2 }, { tag: 'prompt', count: 2 }, { tag: 'run', count: 1 }, { tag: 'review', count: 1 },
+  ]);
+  assert.deepEqual(lib.countTags([{ tags: ['a', 'A'] }]), [{ tag: 'a', count: 1 }]);
+});
+
+test('選んだタグはすべて持つ件だけ（AND）', () => {
+  assert.deepEqual(filterSnippets(tagItems, '', ['git']).map((x) => x.title), ['a', 'c']);
+  assert.deepEqual(filterSnippets(tagItems, '', ['git', 'prompt']).map((x) => x.title), ['c']);
+  assert.deepEqual(filterSnippets(tagItems, '', ['ＧＩＴ']).map((x) => x.title), ['a', 'c']);
+  assert.deepEqual(filterSnippets(tagItems, '', []).map((x) => x.title), ['a', 'b', 'c', 'd']);
+});
+
+test('文字の検索とタグは両方を満たす件だけ', () => {
+  assert.deepEqual(filterSnippets(tagItems, 'git').map((x) => x.title), ['a', 'c', 'b']);
+  assert.deepEqual(filterSnippets(tagItems, 'git', ['prompt']).map((x) => x.title), ['c', 'b']);
+  assert.deepEqual(filterSnippets(tagItems, 'review', ['run']).map((x) => x.title), []);
+});
+
+test('なくなったタグは無視し、件の側の書き方にそろえる', () => {
+  assert.deepEqual(lib.existingTags(tagItems, ['GIT', 'gone', 'git', 'review']), ['git', 'review']);
+  assert.deepEqual(lib.existingTags([], ['git']), []);
+  assert.deepEqual(lib.existingTags(tagItems, null), []);
+});

@@ -5,12 +5,13 @@
 
   const { parseSnippets, serializeSnippets, extractPreamble, validateSnippets } = window.SnipkeyParser;
   const L = window.SnipkeyLib;
-  const { DEFAULT_SETTINGS, filterSnippets } = L;
+  const { DEFAULT_SETTINGS, filterSnippets, countTags, existingTags } = L;
 
   const KEY_SETTINGS = 'snipkey.settings';
   const KEY_TOKEN = 'snipkey.token';
   const KEY_CACHE = 'snipkey.cache';
   const KEY_DRAFT = 'snipkey.draft';
+  const KEY_TAGS = 'snipkey.tags';
 
   // 開発用のローカル読み書きは、ローカルの開発サーバで開いた時だけ選べる
   const DEV_HOST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
@@ -20,6 +21,7 @@
     status: $('status'), statusText: $('status-text'), notice: $('notice'),
     list: $('list'), empty: $('empty'), toast: $('toast'),
     q: $('q'), clear: $('clear'), refresh: $('refresh'), add: $('add'),
+    tagStrip: $('tag-strip'), activeTags: $('active-tags'),
     openSettings: $('open-settings'), dialog: $('settings'), form: $('settings-form'),
     tokenState: $('token-state'), forgetToken: $('forget-token'), cancel: $('cancel-settings'),
     devRow: $('dev-row'),
@@ -40,6 +42,7 @@
   let loading = false;
   let saving = false;
   let uidSeq = 0;
+  let selectedTags = []; // 絞り込みに選んだタグ（localStorage に保つ。いまの件に無いタグは無視する）
 
   // ---- 保存 ----
   function readJson(key) {
@@ -252,6 +255,69 @@
     });
   }
 
+  // ---- タグで絞り込む ----
+  function activeTags() { return existingTags(currentItems(), selectedTags); }
+  const sameTag = (a, b) => a.normalize('NFKC').toLowerCase() === b.normalize('NFKC').toLowerCase();
+
+  function toggleTag(tag) {
+    const now = activeTags();
+    const next = now.some((t) => sameTag(t, tag)) ? now.filter((t) => !sameTag(t, tag)) : now.concat([tag]);
+    setTags(next);
+  }
+  function setTags(tags) {
+    selectedTags = tags;
+    write(KEY_TAGS, tags.length ? tags : null);
+    render();
+  }
+
+  function tagButton(tag, opts) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tag' + (opts.className ? ' ' + opts.className : '');
+    const on = activeTags().some((t) => sameTag(t, tag));
+    b.setAttribute('aria-pressed', String(on));
+    const label = document.createElement('span');
+    label.textContent = '#' + tag;
+    b.append(label);
+    if (opts.count !== undefined) {
+      const n = document.createElement('span');
+      n.className = 'count';
+      n.textContent = String(opts.count);
+      b.append(n);
+    }
+    b.setAttribute('aria-label', opts.label || ('#' + tag + (on ? ' の絞り込みを外す' : ' で絞り込む')));
+    // 件の中のタグを押しても、その件のコピーや展開は動かさない
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); ev.preventDefault(); toggleTag(tag); });
+    b.addEventListener('keydown', (ev) => ev.stopPropagation());
+    return b;
+  }
+
+  function renderTagStrip() {
+    const tags = countTags(currentItems());
+    els.tagStrip.hidden = tags.length === 0;
+    els.tagStrip.replaceChildren(...tags.map((x) => tagButton(x.tag, { count: x.count })));
+  }
+
+  function renderActiveTags() {
+    const tags = activeTags();
+    els.activeTags.hidden = tags.length === 0;
+    document.body.classList.toggle('tag-filter', tags.length > 0);
+    const chips = tags.map((t) => {
+      const b = tagButton(t, { className: 'active', label: '#' + t + ' の絞り込みを外す' });
+      b.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>');
+      return b;
+    });
+    if (tags.length > 1) {
+      const all = document.createElement('button');
+      all.type = 'button';
+      all.className = 'tag clear-tags';
+      all.textContent = 'すべて外す';
+      all.addEventListener('click', () => setTags([]));
+      chips.push(all);
+    }
+    els.activeTags.replaceChildren(...chips);
+  }
+
   const CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
   const PENCIL = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
 
@@ -261,9 +327,11 @@
     li.dataset.uid = String(it.uid);
     if (editing && editing.uid === it.uid) li.classList.add('editing');
 
-    const copyBtn = document.createElement('button');
-    copyBtn.type = 'button';
+    // 中にタグのボタンを置くため、コピーの領域は button ではなく role=button の div にする
+    const copyBtn = document.createElement('div');
     copyBtn.className = 'copy';
+    copyBtn.setAttribute('role', 'button');
+    copyBtn.tabIndex = 0;
     const title = document.createElement('div');
     title.className = 'title';
     title.textContent = it.title;
@@ -276,12 +344,7 @@
       run.title = 'Windows では実行するコマンド。ここではコピーだけ';
       meta.append(run);
     }
-    for (const t of it.tags) {
-      const c = document.createElement('span');
-      c.className = 'chip';
-      c.textContent = '#' + t;
-      meta.append(c);
-    }
+    for (const t of it.tags) meta.append(tagButton(t, {}));
     const preview = document.createElement('div');
     preview.className = 'preview';
     preview.textContent = it.body;
@@ -290,6 +353,9 @@
     copyBtn.append(preview);
     copyBtn.setAttribute('aria-label', it.title + ' をコピー' + (it.type === 'run' ? '（run・実行はしません）' : ''));
     copyBtn.addEventListener('click', () => copySnippet(it));
+    copyBtn.addEventListener('keydown', (ev) => {
+      if (ev.target === copyBtn && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); copySnippet(it); }
+    });
 
     const side = document.createElement('div');
     side.className = 'side';
@@ -352,13 +418,17 @@
     const q = els.q.value;
     els.clear.hidden = q === '';
     const all = currentItems();
-    const shown = filterSnippets(all, q);
+    const tags = activeTags();
+    const shown = filterSnippets(all, q, tags);
     els.list.replaceChildren(...shown.map(renderItem));
+    renderTagStrip();
+    renderActiveTags();
     if (all.length === 0) {
       els.empty.textContent = draft || remote.text ? 'まだ1件もありません。＋で追加できます' : '';
       els.empty.hidden = els.empty.textContent === '';
     } else if (shown.length === 0) {
-      els.empty.textContent = '「' + q.trim() + '」に当たる件はありません';
+      const cond = tags.map((t) => '#' + t).concat(q.trim() ? ['「' + q.trim() + '」'] : []);
+      els.empty.textContent = cond.join(' と ') + ' に当たる件はありません';
       els.empty.hidden = false;
     } else {
       els.empty.hidden = true;
@@ -775,7 +845,7 @@
   els.q.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') {
       ev.preventDefault();
-      const first = filterSnippets(currentItems(), els.q.value)[0];
+      const first = filterSnippets(currentItems(), els.q.value, activeTags())[0];
       if (first) copySnippet(first);
       els.q.blur();
     }
@@ -790,6 +860,8 @@
   // 起動時に編集の履歴が残っていたら捨てる（再読み込みで編集画面は開かない）
   if (history.state && history.state.snipkeyEditor) history.replaceState(null, '');
   restoreDraft();
+  const savedTags = readJson(KEY_TAGS);
+  if (Array.isArray(savedTags)) selectedTags = savedTags.filter((t) => typeof t === 'string');
   const s0 = getSettings();
   if (!showCache('')) { render(); setStatus('読み込み中…'); }
   if (draft && draft.conflict) showConflictNotice();

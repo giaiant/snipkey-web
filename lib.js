@@ -92,10 +92,48 @@
     return String(s).normalize('NFKC').toLowerCase();
   }
 
+  // 件が、選んだタグをすべて持っているか（全角・半角や大文字・小文字は区別しない）
+  function hasAllTags(it, tags) {
+    if (!tags || tags.length === 0) return true;
+    const own = new Set(it.tags.map(normalize));
+    return tags.every((t) => own.has(normalize(t)));
+  }
+
+  // 全タグを件数の多い順に返す（同じ件数なら最初に出てきた順）。[{ tag, count }]
+  function countTags(items) {
+    const map = new Map();
+    items.forEach((it) => {
+      const seen = new Set();
+      for (const t of it.tags) {
+        const k = normalize(t);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (!map.has(k)) map.set(k, { tag: t, count: 0, order: map.size });
+        map.get(k).count += 1;
+      }
+    });
+    return [...map.values()]
+      .sort((a, b) => b.count - a.count || a.order - b.order)
+      .map((x) => ({ tag: x.tag, count: x.count }));
+  }
+
+  // 選んだタグのうち、いまの件に残っているものだけを、件の側の書き方にそろえて返す
+  function existingTags(items, tags) {
+    const known = new Map(countTags(items).map((x) => [normalize(x.tag), x.tag]));
+    const out = [];
+    for (const t of tags || []) {
+      const k = normalize(t);
+      if (known.has(k) && !out.some((o) => normalize(o) === k)) out.push(known.get(k));
+    }
+    return out;
+  }
+
   // 空白で区切った語をすべて含む件を返す（タイトル・タグ・本文の部分一致）。
+  // tags を渡すと、そのタグをすべて持つ件に限る（文字の検索とも AND）。
   // タイトルに当たる件を先に、同じ順位の中では元の順を保つ。
-  function filterSnippets(items, query) {
+  function filterSnippets(items, query, tags) {
     const terms = normalize(query).split(/\s+/).filter(Boolean);
+    if (tags && tags.length) items = items.filter((it) => hasAllTags(it, tags));
     if (terms.length === 0) return items.slice();
     const scored = [];
     items.forEach((it, i) => {
@@ -127,5 +165,7 @@
     describeHttpError: describeHttpError,
     classifyWriteError: classifyWriteError,
     filterSnippets: filterSnippets,
+    countTags: countTags,
+    existingTags: existingTags,
   };
 });

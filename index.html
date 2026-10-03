@@ -28,6 +28,7 @@
   <main id="main" class="layout">
     <section id="list-pane" class="list-pane" aria-label="一覧">
       <div id="notice" class="notice" hidden></div>
+      <div id="tag-strip" class="tag-strip" role="group" aria-label="タグで絞り込む" hidden></div>
       <ul id="list" class="list" aria-label="スニペット一覧"></ul>
       <p id="empty" class="empty" hidden></p>
     </section>
@@ -99,23 +100,26 @@
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <nav class="bar" aria-label="操作">
-    <label class="search">
-      <span class="visually-hidden">検索</span>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-      <input id="q" type="search" placeholder="検索：タイトル・タグ・本文" autocomplete="off" enterkeyhint="search">
-      <button id="clear" class="icon-btn small" type="button" aria-label="検索語を消す" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    <div id="active-tags" class="active-tags" role="group" aria-label="絞り込み中のタグ" hidden></div>
+    <div class="bar-row">
+      <label class="search">
+        <span class="visually-hidden">検索</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <input id="q" type="search" placeholder="検索：タイトル・タグ・本文" autocomplete="off" enterkeyhint="search">
+        <button id="clear" class="icon-btn small" type="button" aria-label="検索語を消す" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </label>
+      <button id="add" class="icon-btn" type="button" aria-label="新規追加">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
-    </label>
-    <button id="add" class="icon-btn" type="button" aria-label="新規追加">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-    </button>
-    <button id="refresh" class="icon-btn" type="button" aria-label="更新">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
-    </button>
-    <button id="open-settings" class="icon-btn" type="button" aria-label="設定">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
-    </button>
+      <button id="refresh" class="icon-btn" type="button" aria-label="更新">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+      </button>
+      <button id="open-settings" class="icon-btn" type="button" aria-label="設定">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
+    </div>
   </nav>
 
   <dialog id="settings" class="sheet" aria-labelledby="settings-title">

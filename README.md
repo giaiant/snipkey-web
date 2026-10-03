@@ -42,6 +42,9 @@ node web/tools/dev-server.js 8787 --data C:\path	o\copy-of-snippets.md
 - PAT は localStorage（`snipkey.token`）にだけ保存する。設定画面では値を表示しない。見るだけなら Contents: Read-only、編集して保存するなら Contents: Read and write の fine-grained PAT にする（対象は snipkey のリポジトリだけ）。
 - `run` の件は「▶ run」の印を付ける。タップしても本文をコピーするだけで、実行はしない。
 - 検索欄で Enter を押すと、先頭の1件をコピーする。
+- タグで絞り込める。一覧の上の帯（件数の多い順・横スクロール）か、各件のタグを押すと、そのタグを持つ件だけを出す。別のタグを押すと AND で足し、同じタグをもう一度押すと外す。絞り込み中のタグは検索欄の上にチップで出し、× で外す（2つ以上なら「すべて外す」も出る）。文字の検索とも AND。
+- 選んだタグは localStorage（`snipkey.tags`）に保ち、次に開いた時も続く。データから消えたタグは無視する。
+- 件の中のタグを押しても、その件のコピーや展開は動かない。
 
 ## 画面のファイルを変えたら
 
