@@ -1,13 +1,14 @@
 // snipkey Service Worker：画面のファイルだけをキャッシュして、オフラインでも開けるようにする。
 // データ（GitHub API・ローカルの snippets.md）はここではキャッシュしない。最後に読めた内容は app.js が localStorage に持つ。
 // 画面のファイルを変えたら VERSION を上げる。
-const VERSION = 'snipkey-v3';
+const VERSION = 'snipkey-v4';
 const SHELL = [
   './',
   'index.html',
   'styles.css',
   'parser.js',
   'lib.js',
+  'merge.js',
   'app.js',
   'manifest.webmanifest',
   'icons/icon.svg',

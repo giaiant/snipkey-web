@@ -5,6 +5,7 @@
 
   const { parseSnippets, serializeSnippets, extractPreamble, validateSnippets } = window.SnipkeyParser;
   const L = window.SnipkeyLib;
+  const { mergeSnippets } = window.SnipkeyMerge;
   const { DEFAULT_SETTINGS, filterSnippets, countTags, existingTags } = L;
 
   const KEY_SETTINGS = 'snipkey.settings';
@@ -34,7 +35,10 @@
   };
 
   // remote：最後に読めた内容 { text, sha, items, preamble }
-  // draft ：未保存の編集 { items, preamble, baseSha, baseText, conflict }（baseSha は編集の元にした版）
+  // draft ：未保存の編集 { items, preamble, baseSha, baseText, pending }
+  //   baseText・baseSha は編集の元にした版（最後に読んだ版。localStorage に残るので再読み込みの後も3者の比較に使える）
+  //   items の各件は baseTitle（base でのタイトル。新しく足した件は null）を持ち、改名しても base との対応を保つ
+  //   pending は、保存が食い違って、どちらを使うか選んでもらう間の最新 { text, sha }
   let remote = { text: '', sha: null, items: [], preamble: '' };
   let draft = null;
   let editing = null; // { uid（新規は null）, snapshot }
@@ -147,11 +151,12 @@
   function ensureDraft() {
     if (draft) return draft;
     draft = {
-      items: remote.items.map((it) => Object.assign({}, it, { tags: it.tags.slice() })), // uid は同じものを使う
+      // uid は同じものを使う
+      items: remote.items.map((it) => Object.assign({}, it, { tags: it.tags.slice(), baseTitle: it.title })),
       preamble: remote.preamble,
       baseSha: remote.sha,
       baseText: remote.text,
-      conflict: null,
+      pending: null,
     };
     return draft;
   }
@@ -160,19 +165,26 @@
     if (!draft) { write(KEY_DRAFT, null); return; }
     const ok = write(KEY_DRAFT, {
       items: draft.items.map(stripUid), preamble: draft.preamble,
-      baseSha: draft.baseSha, baseText: draft.baseText, conflict: draft.conflict,
+      baseSha: draft.baseSha, baseText: draft.baseText, pending: draft.pending,
     });
     if (!ok) toast('下書きを端末に保存できません（このまま閉じると変更は消えます）', true);
   }
   function restoreDraft() {
     const d = readJson(KEY_DRAFT);
     if (!d || !Array.isArray(d.items)) return;
+    // 前の版の「食い違い」の状態（conflict）では、baseText がすでに最新に置き換わっていて元の版が分からない。
+    // その時は base を空として扱い、最新にある件を消さないようにする
+    const oldConflict = Array.isArray(d.conflict);
     draft = {
-      items: d.items.map((it) => withUid(Object.assign({ tags: [] }, it))),
+      items: d.items.map((it) => {
+        const o = withUid(Object.assign({ tags: [] }, it));
+        if (oldConflict) delete o.baseTitle;
+        return o;
+      }),
       preamble: String(d.preamble || ''),
       baseSha: d.baseSha || null,
-      baseText: typeof d.baseText === 'string' ? d.baseText : null,
-      conflict: Array.isArray(d.conflict) ? d.conflict : null,
+      baseText: !oldConflict && typeof d.baseText === 'string' ? d.baseText : null,
+      pending: d.pending && typeof d.pending.text === 'string' ? { text: d.pending.text, sha: d.pending.sha || null } : null,
     };
   }
   function stripUid(it) {
@@ -187,20 +199,6 @@
   }
 
   function indexOfUid(list, uid) { return list.findIndex((it) => it.uid === uid); }
-
-  // 前に読んだ版と最新の版で、変わった件のタイトルを並べる
-  function diffTitles(before, after) {
-    const key = (it) => JSON.stringify([it.type, it.tags, it.shell, it.confirm, it.window, it.body]);
-    const a = new Map(before.map((it) => [it.title, key(it)]));
-    const b = new Map(after.map((it) => [it.title, key(it)]));
-    const out = [];
-    for (const [t, k] of b) {
-      if (!a.has(t)) out.push('追加：' + t);
-      else if (a.get(t) !== k) out.push('変更：' + t);
-    }
-    for (const t of a.keys()) if (!b.has(t)) out.push('削除：' + t);
-    return out;
-  }
 
   // ---- 表示 ----
   function fmtTime(ms) {
@@ -240,7 +238,7 @@
     els.toast.classList.toggle('error', !!isError);
     els.toast.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { els.toast.hidden = true; }, isError ? 5000 : 1800);
+    toastTimer = setTimeout(() => { els.toast.hidden = true; }, isError ? 5000 : text.length > 30 ? 4000 : 1800);
   }
 
   // 確認ダイアログ。既定のボタンは「やめる」
@@ -406,9 +404,9 @@
   function renderDraftBar() {
     els.draftBar.hidden = !draft;
     if (!draft) return;
-    els.draftBar.classList.toggle('conflict', !!draft.conflict);
+    els.draftBar.classList.toggle('conflict', !!draft.pending);
     if (viewLatest) els.draftText.textContent = '最新の内容を表示中（手元の変更は残っています）';
-    else if (draft.conflict) els.draftText.textContent = '最新と食い違っています。確かめてから保存してください';
+    else if (draft.pending) els.draftText.textContent = '最新と食い違う件があります。下で選んでから保存してください';
     else els.draftText.textContent = '未保存の変更があります';
     els.saveDraft.hidden = viewLatest;
     els.discardDraft.textContent = viewLatest ? '手元の変更に戻る' : '破棄';
@@ -500,7 +498,7 @@
       const r = await backendFor(s).read();
       setRemote(r.text, r.sha);
       render();
-      if (!draft || !draft.conflict) hideNotice();
+      if (!draft || !draft.pending) hideNotice();
       remember(r.text, r.sha, s);
       if (manual) toast('更新しました（' + remote.items.length + ' 件）');
       else if (els.toast.classList.contains('error')) els.toast.hidden = true;
@@ -522,39 +520,75 @@
   }
 
   // ---- 保存（GitHub へ書き込む） ----
-  async function saveDraftNow() {
+  // 最後に読んだ sha を付けて PUT する。ほかの場所で先に更新されていたら（409・sha の 422）、
+  // 最新を読み直して3者の比較で合わせ、当たる件が無ければそのまま保存し直す。当たる件があれば選んでもらう。
+  async function saveDraftNow(choices) {
     if (!draft || saving) return;
     if (editing && formChanged()) {
       const go = await ask('編集中の内容はまだ一覧に反映していません（OK を押していません）。反映せずに保存しますか？', '反映せずに保存');
       if (!go) return;
     }
-    const errors = validateSnippets(draft.items);
-    if (errors.length) {
-      const bad = draft.items[errors[0].index];
-      toast((errors[0].index + 1) + '件目：' + errors[0].message + '。直してから保存してください', true);
-      if (bad) openEditor(bad.uid);
-      return;
-    }
-    let text;
-    try { text = serializeSnippets(draft.items, draft.preamble); } catch (e) { toast(e.message, true); return; }
-
+    if (editing) closeEditor();
     const s = getSettings();
     saving = true;
     els.saveDraft.disabled = true;
     els.saveDraft.textContent = '保存中…';
+    let mergedChanges = [];
     try {
-      const r = await backendFor(s).write(text, draft.baseSha);
-      setRemote(text, r.sha);
-      dropDraft();
-      if (editing) closeEditor();
-      hideNotice();
-      render();
-      remember(text, r.sha, s);
-      toast('保存しました（' + remote.items.length + ' 件）');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (draft.pending) {
+          const m = applyMerge(choices);
+          choices = null; // 選んだ内容は、この1回の合わせにだけ使う
+          if (m.needsChoice) {
+            showMergeChoices(m.result);
+            toast('手元と最新の両方で変わった件があります。どちらを使うか選んでください', true);
+            return;
+          }
+          if (!m.ok) return;
+          mergedChanges = mergedChanges.concat(m.remoteChanges);
+        }
+        const errors = validateSnippets(draft.items);
+        if (errors.length) {
+          const bad = draft.items[errors[0].index];
+          toast((errors[0].index + 1) + '件目：' + errors[0].message + '。直してから保存してください', true);
+          if (bad) openEditor(bad.uid);
+          return;
+        }
+        let text;
+        try { text = serializeSnippets(draft.items, draft.preamble); } catch (e) { toast(e.message, true); return; }
+        if (draft.baseText != null && text === draft.baseText) {
+          // 合わせた結果が最新と同じ（手元の変更がすべて最新に含まれていた）。空のコミットを作らない
+          setRemote(text, draft.baseSha);
+          dropDraft();
+          hideNotice();
+          render();
+          toast('最新と同じ内容になったので、書き込みはしませんでした');
+          return;
+        }
+        try {
+          const r = await backendFor(s).write(text, draft.baseSha);
+          setRemote(text, r.sha);
+          dropDraft();
+          hideNotice();
+          render();
+          remember(text, r.sha, s);
+          toast(mergedChanges.length
+            ? 'ほかの端末の変更（' + mergedChanges.join('、') + '）と合わせて保存しました'
+            : '保存しました（' + remote.items.length + ' 件）');
+          return;
+        } catch (err) {
+          if (err.kind !== 'conflict') throw err;
+          // 最新を読み直して、次の周で合わせる
+          const latest = await backendFor(s).read();
+          setRemote(latest.text, latest.sha);
+          remember(latest.text, latest.sha, s);
+          draft.pending = { text: latest.text, sha: latest.sha };
+          persistDraft();
+        }
+      }
+      toast('保存の途中で何度も更新されました。少し待ってから、もう一度「保存」を押してください', true);
     } catch (err) {
-      if (err.kind === 'conflict') {
-        await handleConflict(s);
-      } else if (err instanceof TypeError) {
+      if (err instanceof TypeError) {
         toast('オフラインか接続できません。変更は端末に残っています', true);
       } else {
         showNotice(err.message + '\n変更は端末に残っています。', !!err.needsSettings);
@@ -564,45 +598,141 @@
       saving = false;
       els.saveDraft.disabled = false;
       els.saveDraft.textContent = '保存';
+      renderDraftBar();
     }
   }
 
-  // sha が合わなかった：最新を読み直し、手元の変更はそのまま残して、やり直しを促す
-  async function handleConflict(s) {
-    let latest;
-    try {
-      latest = await backendFor(s).read();
-    } catch (e) {
-      const reason = e instanceof TypeError ? 'オフラインか接続できません' : e.message;
-      showNotice('ほかの場所で先に更新されていたため保存できませんでした。最新を読み直せませんでした（' + reason + '）。変更は端末に残っています。「更新」を押してからもう一度保存してください。', false);
-      return;
-    }
-    const before = draft.baseText != null ? parseSnippets(draft.baseText) : [];
-    setRemote(latest.text, latest.sha);
-    remember(latest.text, latest.sha, s);
-    const changed = diffTitles(before, remote.items);
-    draft.baseSha = latest.sha;
-    draft.baseText = latest.text;
-    draft.conflict = changed;
+  function mergeInput(choices) {
+    const p = draft.pending;
+    return {
+      base: draft.baseText != null ? parseSnippets(draft.baseText) : [],
+      local: draft.items,
+      remote: parseSnippets(p.text),
+      basePreamble: draft.baseText != null ? extractPreamble(draft.baseText) : '',
+      localPreamble: draft.preamble,
+      remotePreamble: extractPreamble(p.text),
+      choices: choices ? choices.items : null,
+      preambleChoice: choices ? choices.preamble : null,
+    };
+  }
+
+  // 下書きを最新（pending）に合わせ直す。当たる件が残れば何も変えずに知らせる
+  function applyMerge(choices) {
+    const result = mergeSnippets(mergeInput(choices));
+    if (result.conflicts.length || result.preambleConflict) return { needsChoice: true, result: result };
+    const p = draft.pending;
+    draft.items = result.items.map((it) => withUid(it));
+    draft.preamble = result.preamble;
+    draft.baseText = p.text;
+    draft.baseSha = p.sha;
+    draft.pending = null;
+    viewLatest = false;
     persistDraft();
+    hideNotice();
     render();
-    showConflictNotice();
-    toast('ほかの場所で先に更新されていました。保存していません', true);
+    const errors = validateSnippets(draft.items);
+    if (errors.length) {
+      showNotice('ほかの端末の変更と合わせました。ただ、次の件はこのままでは保存できないので、直してから「保存」を押してください。\n' +
+        errors.map((e) => '・' + ((draft.items[e.index] && draft.items[e.index].title) || '（タイトルなし）') + '：' + e.message).join('\n'), false);
+      return { ok: false };
+    }
+    return { ok: true, remoteChanges: result.remoteChanges };
   }
 
-  function showConflictNotice() {
-    if (!draft || !draft.conflict) return;
-    const changed = draft.conflict;
-    showNotice(
-      'data/snippets.md が、ほかの場所（Windows の同期や別の端末）で先に更新されていたため、保存していません。最新を読み直しました。手元の変更は消えずに残っています。\n' +
-      (changed.length ? '最新で変わった件：' + changed.join('、') + '\n' : '') +
-      '「最新を見る」で中身を確かめ、残したい変更を手元にも入れてから、もう一度「保存」を押してください（保存すると手元の内容で上書きします）。手元の変更をやめるなら「破棄」。',
-      false,
-      [{ label: '最新を見る', onClick: () => { viewLatest = true; if (editing) closeEditor(); render(); } }]
-    );
+  const KIND_TEXT = {
+    'both-modified': '手元と最新の両方で変更',
+    'local-modified-remote-deleted': '手元で変更、最新では削除',
+    'local-deleted-remote-modified': '手元で削除、最新では変更',
+    'both-added': '手元と最新の両方で同じタイトルの件を追加',
+  };
+
+  function summarize(it) {
+    if (!it) return '削除する';
+    const parts = [];
+    if (it.tags && it.tags.length) parts.push(it.tags.map((t) => '#' + t).join(' '));
+    const body = String(it.body || '').split('\n').filter((l) => l.trim()).slice(0, 2).join(' / ');
+    parts.push(body.length > 80 ? body.slice(0, 80) + '…' : body || '（本文なし）');
+    return parts.join('　');
   }
 
-  els.saveDraft.addEventListener('click', saveDraftNow);
+  // 当たる件ごとに「手元」「最新」を選んでもらう。選び終えたら合わせて保存する
+  function showMergeChoices(result) {
+    if (!draft || !draft.pending) return;
+    const res = result || mergeSnippets(mergeInput(null));
+    // 当たる件が無ければ、次に「保存」を押した時に自動で合わせる
+    if (!res.conflicts.length && !res.preambleConflict) return;
+    els.notice.replaceChildren();
+    const form = document.createElement('form');
+    form.className = 'merge';
+    const intro = document.createElement('p');
+    intro.textContent = 'data/snippets.md が、ほかの場所（Windows の同期や別の端末）で先に更新されていました。ほかの変更は自動で合わせます。次の件は手元と最新の両方で変わっているので、どちらを使うか選んでください。';
+    form.append(intro);
+    if (res.remoteChanges.length) {
+      const p = document.createElement('p');
+      p.className = 'merge-changes';
+      p.textContent = '最新で変わった件：' + res.remoteChanges.join('、');
+      form.append(p);
+    }
+    const rows = res.conflicts.map((c) => ({
+      name: 'item:' + c.key, kind: KIND_TEXT[c.kind],
+      title: c.local && c.remote && c.local.title !== c.remote.title ? c.remote.title + ' → ' + c.local.title : c.title,
+      local: (c.local && c.local.title !== c.title ? c.local.title + '　' : '') + summarize(c.local),
+      remote: summarize(c.remote),
+    }));
+    if (res.preambleConflict) {
+      rows.push({ name: 'preamble', title: '説明文（最初の ## より前）', kind: '手元と最新の両方で変更',
+        local: res.preambleConflict.local.slice(0, 80), remote: res.preambleConflict.remote.slice(0, 80) });
+    }
+    for (const row of rows) {
+      const fs = document.createElement('fieldset');
+      fs.className = 'merge-item';
+      const lg = document.createElement('legend');
+      lg.textContent = row.title + '（' + row.kind + '）';
+      fs.append(lg);
+      for (const side of ['local', 'remote']) {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'radio'; input.name = row.name; input.value = side;
+        const head = document.createElement('b');
+        head.textContent = side === 'local' ? '手元' : '最新';
+        const text = document.createElement('span');
+        text.textContent = row[side];
+        label.append(input, head, text);
+        fs.append(label);
+      }
+      form.append(fs);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'notice-actions';
+    const save = document.createElement('button');
+    save.type = 'submit'; save.className = 'btn small primary'; save.textContent = '選んだ内容で合わせて保存';
+    save.disabled = true;
+    const latest = document.createElement('button');
+    latest.type = 'button'; latest.className = 'btn small ghost'; latest.textContent = '最新を見る';
+    latest.addEventListener('click', () => { viewLatest = true; if (editing) closeEditor(); render(); });
+    actions.append(save, latest);
+    form.append(actions);
+    const hint = document.createElement('p');
+    hint.className = 'merge-hint';
+    hint.textContent = '手元の変更をすべてやめるなら、上の「破棄」を押してください。';
+    form.append(hint);
+    const checked = (name) => form.querySelector('input[name="' + CSS.escape(name) + '"]:checked');
+    const allChosen = () => rows.every((row) => checked(row.name));
+    form.addEventListener('change', () => { save.disabled = !allChosen(); });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      if (!allChosen()) return;
+      const choices = { items: {}, preamble: null };
+      for (const c of res.conflicts) choices.items[c.key] = checked('item:' + c.key).value;
+      if (res.preambleConflict) choices.preamble = checked('preamble').value;
+      saveDraftNow(choices);
+    });
+    els.notice.append(form);
+    els.notice.hidden = false;
+    renderDraftBar();
+  }
+
+  els.saveDraft.addEventListener('click', () => saveDraftNow());
   els.discardDraft.addEventListener('click', async () => {
     if (viewLatest) { viewLatest = false; render(); return; }
     const go = await ask('未保存の変更をすべて捨てて、最後に読んだ内容に戻しますか？', '破棄する');
@@ -726,7 +856,7 @@
     const d = ensureDraft();
     let uid = editing.uid;
     if (uid === null) {
-      const it = withUid(v);
+      const it = withUid(Object.assign(v, { baseTitle: null }));
       d.items.push(it);
       uid = it.uid;
       editing.uid = uid; // 閉じた後にこの件を見せるため
@@ -864,7 +994,7 @@
   if (Array.isArray(savedTags)) selectedTags = savedTags.filter((t) => typeof t === 'string');
   const s0 = getSettings();
   if (!showCache('')) { render(); setStatus('読み込み中…'); }
-  if (draft && draft.conflict) showConflictNotice();
+  if (draft && draft.pending) showMergeChoices();
   if (!useDevLocal(s0) && !getToken() && !readJson(KEY_CACHE)) {
     setStatus('未設定');
     showNotice('はじめに設定で PAT を入力してください。', true);

@@ -179,11 +179,11 @@ main {
   position: fixed; left: 50%; z-index: 4;
   bottom: calc(var(--bar-h) + env(safe-area-inset-bottom) + 16px);
   transform: translateX(-50%);
-  max-width: calc(100vw - 32px);
-  padding: 10px 16px; border-radius: 999px;
+  width: max-content; max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px; border-radius: 18px;
   background: var(--toast-bg); color: var(--toast-text);
   font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow-wrap: anywhere; text-align: center;
 }
 .toast.error { background: var(--danger); color: #fff; }
 
@@ -223,6 +223,7 @@ main {
 .btn.ghost { border-color: transparent; }
 .btn.danger { color: var(--danger); }
 .btn.small { height: 36px; font-size: 14px; }
+.btn:disabled { opacity: .45; cursor: default; }
 
 /* 編集フォーム */
 .editor-pane { min-width: 0; }
@@ -346,3 +347,21 @@ body.tag-filter { --bar-h: 112px; }
   .meta .tag { min-height: 34px; }
   .tag-strip .tag { min-height: 40px; }
 }
+
+/* 保存が食い違った時に、当たる件を選ぶ */
+.merge p { margin: 0 0 8px; }
+.merge .merge-changes { font-weight: 600; }
+.merge .merge-hint { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.merge-item {
+  margin: 10px 0 0; padding: 8px 10px 10px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+}
+.merge-item legend { padding: 0 4px; font-weight: 600; overflow-wrap: anywhere; }
+.merge-item label {
+  display: grid; grid-template-columns: auto auto 1fr; align-items: start; gap: 4px 8px;
+  margin-top: 6px; padding: 8px 10px; min-height: 44px;
+  border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+}
+.merge-item label:has(input:checked) { border-color: var(--accent); background: var(--draft-bg); color: var(--draft-text); }
+.merge-item input { margin: 2px 0 0; width: 18px; height: 18px; accent-color: var(--accent); }
+.merge-item span { font-family: var(--mono); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
