@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>snipkey</title>
+  <meta name="description" content="プロンプトとコマンドを検索して、タップでコピーする">
+  <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="status" id="status" aria-live="polite">
+    <span id="status-text">読み込み中…</span>
+  </header>
+
+  <main id="main">
+    <div id="notice" class="notice" hidden></div>
+    <ul id="list" class="list" aria-label="スニペット一覧"></ul>
+    <p id="empty" class="empty" hidden></p>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <nav class="bar" aria-label="操作">
+    <label class="search">
+      <span class="visually-hidden">検索</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input id="q" type="search" placeholder="検索：タイトル・タグ・本文" autocomplete="off" enterkeyhint="search">
+      <button id="clear" class="icon-btn small" type="button" aria-label="検索語を消す" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </label>
+    <button id="refresh" class="icon-btn" type="button" aria-label="更新">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+    </button>
+    <button id="open-settings" class="icon-btn" type="button" aria-label="設定">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+  </nav>
+
+  <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+    <form id="settings-form" method="dialog">
+      <h2 id="settings-title">設定</h2>
+      <p class="hint">GitHub の非公開リポジトリから <code>data/snippets.md</code> を読みます。</p>
+      <div class="grid">
+        <label>owner<input name="owner" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label>repo<input name="repo" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label>branch<input name="branch" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label>path<input name="path" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+      </div>
+      <label class="pat">
+        fine-grained PAT
+        <input name="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…">
+      </label>
+      <p class="hint" id="token-state"></p>
+      <p class="hint">PAT はこの端末の localStorage にだけ保存します。権限は対象リポジトリだけ、Contents: Read-only にしてください。</p>
+      <label id="dev-row" class="check" hidden>
+        <input name="devLocal" type="checkbox">
+        開発用：サーバ上のローカルファイル（<code>../path</code>）を読む
+      </label>
+      <div class="actions">
+        <button id="forget-token" type="button" class="btn ghost danger">PAT を消す</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" id="cancel-settings">閉じる</button>
+        <button type="submit" class="btn primary" value="save">保存して読み込む</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="parser.js"></script>
+  <script src="lib.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
