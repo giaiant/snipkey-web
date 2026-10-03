@@ -12,6 +12,8 @@
   --danger: #b3261e;
   --toast-bg: #1b1d22;
   --toast-text: #ffffff;
+  --draft-bg: #dff1f0;
+  --draft-text: #08504f;
   --radius: 14px;
   --bar-h: 64px;
   --mono: ui-monospace, "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
@@ -32,6 +34,8 @@
     --danger: #ff8a80;
     --toast-bg: #e8eaee;
     --toast-text: #14161a;
+    --draft-bg: #12312f;
+    --draft-text: #9fe3df;
   }
 }
 
@@ -50,16 +54,25 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 code { font-family: var(--mono); font-size: .9em; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* 上：状態の1行 */
+/* 上：状態の1行と、未保存の変更 */
+.top { position: sticky; top: 0; z-index: 2; background: var(--bg); }
 .status {
-  position: sticky; top: 0; z-index: 2;
   padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
-  background: var(--bg);
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .status.offline { color: var(--run); }
+.draft-bar {
+  display: flex; align-items: center; gap: 6px;
+  max-width: 720px; margin: 0 auto 8px; padding: 6px 6px 6px 14px;
+  border-radius: var(--radius);
+  background: var(--draft-bg); color: var(--draft-text);
+  font-size: 14px;
+}
+.draft-bar.conflict { background: var(--run-bg); color: var(--run); }
+.draft-text { flex: 1; min-width: 0; font-weight: 600; }
+.draft-bar .btn.ghost { color: inherit; }
 
 main {
   padding: 0 12px calc(var(--bar-h) + env(safe-area-inset-bottom) + 24px);
@@ -72,7 +85,8 @@ main {
   background: var(--surface-2);
   font-size: 14px;
 }
-.notice button { margin-top: 8px; }
+.notice p { margin: 0 0 4px; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .empty { text-align: center; color: var(--muted); padding: 32px 16px; }
 
 /* 一覧 */
@@ -105,11 +119,15 @@ main {
   white-space: pre-wrap; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.expand {
+.side { display: flex; }
+.edit, .expand {
   all: unset; cursor: pointer;
-  width: 48px; display: grid; place-items: center;
+  width: 44px; display: grid; place-items: center;
   color: var(--muted);
 }
+.edit:active, .expand:active { background: var(--surface-2); }
+.edit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.item.editing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .expand svg { transition: transform .15s; }
 .expand[aria-expanded="true"] svg { transform: rotate(180deg); }
 .full {
@@ -203,3 +221,80 @@ main {
 .btn.ghost { border-color: transparent; }
 .btn.danger { color: var(--danger); }
 .btn.small { height: 36px; font-size: 14px; }
+
+/* 編集フォーム */
+.editor-pane { min-width: 0; }
+.edit-form {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 14px 14px;
+}
+.editor-head { display: flex; align-items: center; gap: 2px; margin: 0 -6px 4px; }
+.editor-head h2 { margin: 0 0 0 4px; font-size: 18px; }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.field input:not([type=radio]):not([type=checkbox]), .field select, .field textarea {
+  width: 100%; min-width: 0;
+  padding: 0 12px; height: 44px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); color: var(--text); font: inherit; font-size: 16px;
+}
+.field textarea {
+  height: auto; min-height: 220px; padding: 10px 12px;
+  font-family: var(--mono); font-size: 14px; line-height: 1.5;
+  resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto;
+  tab-size: 4;
+}
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field [aria-invalid="true"] { border-color: var(--danger); }
+.field-error { margin: 4px 0 0; color: var(--danger); font-size: 13px; font-weight: 600; }
+fieldset.seg { flex-direction: row; flex-wrap: wrap; gap: 8px; border: 0; padding: 0; margin: 12px 0 0; }
+fieldset.seg legend { padding: 0; margin-bottom: 4px; width: 100%; }
+fieldset.seg label {
+  display: flex; align-items: center; gap: 6px;
+  height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text); font-size: 15px; cursor: pointer;
+}
+fieldset.seg label:has(input:checked) { border-color: var(--accent); background: var(--draft-bg); color: var(--draft-text); font-weight: 600; }
+fieldset.seg input { margin: 0; accent-color: var(--accent); }
+.run-fields {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px;
+  margin-top: 12px; padding: 2px 12px 12px; border-radius: 12px; background: var(--run-bg);
+}
+.run-fields .field { color: var(--run); }
+.run-fields .check { grid-column: 1 / -1; }
+.check { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 14px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.edit-form .actions { margin-top: 14px; }
+
+/* 確認ダイアログ */
+.confirm {
+  width: calc(100% - 32px); max-width: 420px; padding: 0;
+  border: 0; border-radius: 16px; background: var(--surface); color: var(--text);
+}
+.confirm::backdrop { background: rgba(0,0,0,.45); }
+.confirm form { padding: 18px 16px 14px; }
+.confirm p { margin: 0; overflow-wrap: anywhere; }
+.confirm .btn.primary { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* スマホ：編集中は編集画面だけにする */
+@media (max-width: 899px) {
+  body.editing .list-pane, body.editing .bar, body.editing .draft-bar { display: none !important; }
+  body.editing main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px); }
+  .edit-form { border: 0; background: transparent; padding: 0 2px; }
+}
+
+/* PC：一覧と編集フォームを左右に並べる */
+@media (min-width: 900px) {
+  body.editing main.layout {
+    max-width: 1280px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: start;
+  }
+  body.editing .editor-pane {
+    position: sticky; top: 96px;
+    max-height: calc(100vh - 96px - var(--bar-h) - 16px); overflow: auto;
+    border-radius: var(--radius);
+  }
+  body.editing .draft-bar { max-width: 1256px; }
+  #editor-back { display: none; }
+  .editor-head h2 { margin-left: 8px; }
+}

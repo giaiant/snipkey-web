@@ -77,5 +77,87 @@
     return out;
   }
 
-  return { parseSnippets: parseSnippets };
+  // ---- 書き出し（編集画面の保存用） ----
+
+  function toLf(s) {
+    return String(s).replace(/\r\n?/g, '\n');
+  }
+
+  // 最初の `## ` 行より前の説明文。そのまま残すために使う（BOM は除き、改行は LF にそろえる）
+  function extractPreamble(text) {
+    const lines = toLf(String(text).replace(/^﻿/, '')).split('\n');
+    const i = lines.findIndex((l) => l.startsWith('## '));
+    return (i < 0 ? lines : lines.slice(0, i)).join('\n');
+  }
+
+  // 本文の中に `~~~` だけの行があると囲みが閉じてしまうので保存できない
+  function hasFenceLine(body) {
+    return toLf(body).split('\n').some((l) => l.trim() === FENCE);
+  }
+
+  function normalizeTitle(title) {
+    return String(title).trim();
+  }
+
+  // 保存できない件を調べる。返り値は [{ index, field: 'title'|'body', message }]
+  function validateSnippets(items) {
+    const errors = [];
+    const seen = new Map();
+    items.forEach((it, index) => {
+      const title = normalizeTitle(it.title);
+      if (title === '') {
+        errors.push({ index: index, field: 'title', message: 'タイトルが空です' });
+      } else if (/[\r\n]/.test(title)) {
+        errors.push({ index: index, field: 'title', message: 'タイトルに改行は使えません' });
+      } else if (seen.has(title)) {
+        errors.push({ index: index, field: 'title', message: '「' + title + '」はほかの件と重複しています' });
+      } else {
+        seen.set(title, index);
+      }
+      if (hasFenceLine(it.body)) {
+        errors.push({ index: index, field: 'body', message: '本文に「~~~」だけの行は書けません' });
+      }
+    });
+    return errors;
+  }
+
+  function serializeOne(it) {
+    const lines = ['## ' + normalizeTitle(it.title)];
+    lines.push('type: ' + (it.type === 'run' ? 'run' : 'paste')); // type は常に書く
+    const tags = (it.tags || []).map((t) => String(t).trim()).filter(Boolean);
+    if (tags.length) lines.push('tags: ' + tags.join(', '));
+    // 既定値と同じキーは省略する（paste の件でも、既定と違う値は失わないように書く）
+    if (it.shell && it.shell !== DEFAULTS.shell) lines.push('shell: ' + it.shell);
+    if (it.confirm === false) lines.push('confirm: false');
+    if (it.window && it.window !== DEFAULTS.window) lines.push('window: ' + it.window);
+    lines.push('', FENCE);
+    const body = toLf(it.body == null ? '' : it.body);
+    if (body !== '') lines.push(body);
+    // 本文が空の時も、本文が改行で終わる時も、閉じの前の改行1つは囲みの一部なので内容は保たれる
+    lines.push(FENCE);
+    return lines.join('\n');
+  }
+
+  // 件の配列から SPEC.md 形式の Markdown を作る。保存できない件があれば例外を投げる。
+  function serializeSnippets(items, preamble) {
+    const errors = validateSnippets(items);
+    if (errors.length) {
+      const e = new Error(errors.map((x) => (x.index + 1) + '件目: ' + x.message).join('\n'));
+      e.errors = errors;
+      throw e;
+    }
+    const parts = [];
+    const head = toLf(preamble || '').replace(/^﻿/, '').replace(/\n+$/, '');
+    if (head !== '') parts.push(head);
+    for (const it of items) parts.push(serializeOne(it));
+    return parts.join('\n\n') + '\n';
+  }
+
+  return {
+    parseSnippets: parseSnippets,
+    extractPreamble: extractPreamble,
+    hasFenceLine: hasFenceLine,
+    validateSnippets: validateSnippets,
+    serializeSnippets: serializeSnippets,
+  };
 });

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>snipkey</title>
-  <meta name="description" content="プロンプトとコマンドを検索して、タップでコピーする">
+  <meta name="description" content="プロンプトとコマンドを検索して、タップでコピーする。編集もできる">
   <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
@@ -14,14 +14,86 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="status" id="status" aria-live="polite">
-    <span id="status-text">読み込み中…</span>
-  </header>
+  <div class="top">
+    <header class="status" id="status" aria-live="polite">
+      <span id="status-text">読み込み中…</span>
+    </header>
+    <div id="draft-bar" class="draft-bar" role="region" aria-label="未保存の変更" hidden>
+      <span id="draft-text" class="draft-text">未保存の変更があります</span>
+      <button id="discard-draft" type="button" class="btn ghost small">破棄</button>
+      <button id="save-draft" type="button" class="btn primary small">保存</button>
+    </div>
+  </div>
 
-  <main id="main">
-    <div id="notice" class="notice" hidden></div>
-    <ul id="list" class="list" aria-label="スニペット一覧"></ul>
-    <p id="empty" class="empty" hidden></p>
+  <main id="main" class="layout">
+    <section id="list-pane" class="list-pane" aria-label="一覧">
+      <div id="notice" class="notice" hidden></div>
+      <ul id="list" class="list" aria-label="スニペット一覧"></ul>
+      <p id="empty" class="empty" hidden></p>
+    </section>
+
+    <section id="editor-pane" class="editor-pane" aria-labelledby="editor-title" hidden>
+      <form id="edit-form" class="edit-form" novalidate>
+        <div class="editor-head">
+          <button id="editor-back" type="button" class="icon-btn" aria-label="一覧に戻る">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <h2 id="editor-title">編集</h2>
+          <span class="spacer"></span>
+          <button id="move-up" type="button" class="icon-btn" aria-label="上へ移動">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+          </button>
+          <button id="move-down" type="button" class="icon-btn" aria-label="下へ移動">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+          </button>
+        </div>
+
+        <label class="field">タイトル
+          <input name="title" autocomplete="off" spellcheck="false" aria-describedby="title-error">
+        </label>
+        <p id="title-error" class="field-error" hidden></p>
+
+        <fieldset class="field seg">
+          <legend>type</legend>
+          <label><input type="radio" name="type" value="paste" checked> paste（貼り付け）</label>
+          <label><input type="radio" name="type" value="run"> run（実行）</label>
+        </fieldset>
+
+        <label class="field">tags（カンマ区切り）
+          <input name="tags" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="prompt, review">
+        </label>
+
+        <div id="run-fields" class="run-fields" hidden>
+          <label class="field">shell
+            <select name="shell">
+              <option value="powershell">powershell（Windows PowerShell 5.1）</option>
+              <option value="pwsh">pwsh</option>
+              <option value="cmd">cmd</option>
+            </select>
+          </label>
+          <label class="field">window
+            <select name="window">
+              <option value="keep">keep（実行後も開いたまま）</option>
+              <option value="hidden">hidden（画面に出さない）</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" name="confirm" checked> 実行の前に確認する（confirm）</label>
+        </div>
+
+        <label class="field body-field">本文
+          <textarea name="body" rows="10" spellcheck="false" autocapitalize="off" aria-describedby="body-error"></textarea>
+        </label>
+        <p id="body-error" class="field-error" hidden></p>
+
+        <div class="actions">
+          <button id="delete-item" type="button" class="btn ghost danger">削除</button>
+          <span class="spacer"></span>
+          <button id="cancel-edit" type="button" class="btn ghost">キャンセル</button>
+          <button id="apply-edit" type="submit" class="btn primary">OK</button>
+        </div>
+        <p class="hint">OK で一覧に反映します。GitHub へは上の「保存」でまとめて書き込みます。</p>
+      </form>
+    </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
@@ -35,6 +107,9 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </label>
+    <button id="add" class="icon-btn" type="button" aria-label="新規追加">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
     <button id="refresh" class="icon-btn" type="button" aria-label="更新">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
     </button>
@@ -46,7 +121,7 @@
   <dialog id="settings" class="sheet" aria-labelledby="settings-title">
     <form id="settings-form" method="dialog">
       <h2 id="settings-title">設定</h2>
-      <p class="hint">GitHub の非公開リポジトリから <code>data/snippets.md</code> を読みます。</p>
+      <p class="hint">GitHub の非公開リポジトリの <code>data/snippets.md</code> を読み書きします。</p>
       <div class="grid">
         <label>owner<input name="owner" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
         <label>repo<input name="repo" required autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -58,16 +133,27 @@
         <input name="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…">
       </label>
       <p class="hint" id="token-state"></p>
-      <p class="hint">PAT はこの端末の localStorage にだけ保存します。権限は対象リポジトリだけ、Contents: Read-only にしてください。</p>
+      <p class="hint">PAT はこの端末の localStorage にだけ保存します。対象は snipkey のリポジトリだけにしてください。権限は、見るだけなら Contents: Read-only、編集して保存するなら Contents: Read and write が必要です。</p>
       <label id="dev-row" class="check" hidden>
         <input name="devLocal" type="checkbox">
-        開発用：サーバ上のローカルファイル（<code>../path</code>）を読む
+        開発用：開発サーバのローカルファイルを読み書きする（GitHub には書きません）
       </label>
       <div class="actions">
         <button id="forget-token" type="button" class="btn ghost danger">PAT を消す</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost" id="cancel-settings">閉じる</button>
         <button type="submit" class="btn primary" value="save">保存して読み込む</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm" class="confirm" aria-labelledby="confirm-text">
+    <form method="dialog">
+      <p id="confirm-text"></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button id="confirm-no" type="submit" value="no" class="btn ghost" autofocus>やめる</button>
+        <button id="confirm-yes" type="submit" value="yes" class="btn primary">OK</button>
       </div>
     </form>
   </dialog>

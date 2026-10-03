@@ -44,3 +44,48 @@ test('複数の語はすべて含む件だけを返し、タイトルに当た�
   ];
   assert.deepEqual(filterSnippets(list, 'zip').map((x) => x.title), ['zip b', 'a']);
 });
+
+// ---- 書き込み ----
+const lib = require('../lib.js');
+
+test('読む要求は JSON（sha を得るため）', () => {
+  const req = lib.buildReadRequest(DEFAULT_SETTINGS, 'TOKEN');
+  assert.equal(req.url, 'https://api.github.com/repos/giaiant/snipkey/contents/data/snippets.md?ref=main');
+  assert.equal(req.headers.Accept, 'application/vnd.github+json');
+});
+
+test('書く要求は PUT で、sha・branch・決まったコミットメッセージを付ける', () => {
+  const req = lib.buildWriteRequest(DEFAULT_SETTINGS, 'TOKEN', '## あ\n', 'abc123');
+  assert.equal(req.method, 'PUT');
+  assert.equal(req.url, 'https://api.github.com/repos/giaiant/snipkey/contents/data/snippets.md');
+  assert.equal(req.headers.Authorization, 'Bearer TOKEN');
+  const body = JSON.parse(req.body);
+  assert.deepEqual(Object.keys(body).sort(), ['branch', 'content', 'message', 'sha']);
+  assert.equal(body.message, 'data: update snippets from web');
+  assert.equal(body.sha, 'abc123');
+  assert.equal(body.branch, 'main');
+  assert.equal(Buffer.from(body.content, 'base64').toString('utf8'), '## あ\n');
+});
+
+test('base64 は UTF-8 で往復でき、GitHub の改行入りも読める', () => {
+  const s = '日本語 ``` ~~~ 😀\n' + 'x'.repeat(70000);
+  const b64 = lib.encodeBase64Utf8(s);
+  assert.equal(b64, Buffer.from(s, 'utf8').toString('base64'));
+  const wrapped = b64.replace(/(.{60})/g, '$1\n');
+  assert.equal(lib.decodeBase64Utf8(wrapped), s);
+  assert.deepEqual(lib.readContentsJson({ sha: 'z', encoding: 'base64', content: wrapped }), { text: s, sha: 'z' });
+  assert.deepEqual(lib.readContentsJson({ sha: 'z', encoding: 'none', content: '' }), { text: null, sha: 'z' });
+  assert.throws(() => lib.readContentsJson({}));
+});
+
+test('書き込みの失敗を分類する', () => {
+  assert.equal(lib.classifyWriteError(409, 'x does not match y').kind, 'conflict');
+  assert.equal(lib.classifyWriteError(422, '"sha" wasn\'t supplied.').kind, 'conflict');
+  assert.equal(lib.classifyWriteError(422, 'Invalid request').kind, 'other');
+  const f = lib.classifyWriteError(403, 'Resource not accessible by personal access token');
+  assert.equal(f.kind, 'forbidden');
+  assert.match(f.message, /Read and write/);
+  assert.equal(lib.classifyWriteError(401).kind, 'auth');
+  assert.equal(lib.classifyWriteError(404).kind, 'notfound');
+  assert.equal(lib.classifyWriteError(500).kind, 'other');
+});
