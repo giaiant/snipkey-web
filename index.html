@@ -82,8 +82,9 @@
         </div>
 
         <label class="field body-field">本文
-          <textarea name="body" rows="10" spellcheck="false" autocapitalize="off" aria-describedby="body-error"></textarea>
+          <textarea name="body" rows="10" spellcheck="false" autocapitalize="off" aria-describedby="body-vars body-error"></textarea>
         </label>
+        <p id="body-vars" class="hint vars-hint"><code>{{名前}}</code> で使う時に入力、<code>{{名前:既定値}}</code> で既定値<span id="body-vars-names"></span></p>
         <p id="body-error" class="field-error" hidden></p>
 
         <div class="actions">
@@ -167,6 +168,20 @@
     </form>
   </dialog>
 
+  <dialog id="vars" class="sheet" aria-labelledby="vars-title">
+    <form id="vars-form" method="dialog" novalidate>
+      <h2 id="vars-title">変数を入力</h2>
+      <p id="vars-note" class="hint"></p>
+      <div id="vars-fields" class="vars-fields"></div>
+      <p id="vars-error" class="field-error" hidden></p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button id="vars-cancel" type="button" class="btn ghost">やめる</button>
+        <button type="submit" class="btn primary">コピー</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="confirm" class="confirm" aria-labelledby="confirm-text">
     <form method="dialog">
       <p id="confirm-text"></p>
@@ -180,6 +195,7 @@
 
   <script src="parser.js"></script>
   <script src="lib.js"></script>
+  <script src="vars.js"></script>
   <script src="merge.js"></script>
   <script src="app.js"></script>
 </body>

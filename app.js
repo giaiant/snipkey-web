@@ -6,6 +6,7 @@
   const { parseSnippets, serializeSnippets, extractPreamble, validateSnippets, parseCategories, setCategories, categoryNameError } = window.SnipkeyParser;
   const L = window.SnipkeyLib;
   const { mergeSnippets } = window.SnipkeyMerge;
+  const { extractVariables, substitutePaste, runValueError } = window.SnipkeyVars;
   const { DEFAULT_SETTINGS, filterSnippets, countTags, existingTags } = L;
 
   const KEY_SETTINGS = 'snipkey.settings';
@@ -33,6 +34,9 @@
     runFields: $('run-fields'), titleError: $('title-error'), bodyError: $('body-error'),
     deleteItem: $('delete-item'), cancelEdit: $('cancel-edit'), applyEdit: $('apply-edit'),
     confirm: $('confirm'), confirmText: $('confirm-text'), confirmYes: $('confirm-yes'), confirmNo: $('confirm-no'),
+    vars: $('vars'), varsForm: $('vars-form'), varsTitle: $('vars-title'), varsNote: $('vars-note'),
+    varsFields: $('vars-fields'), varsError: $('vars-error'), varsCancel: $('vars-cancel'),
+    bodyVarsNames: $('body-vars-names'),
   };
 
   // remote：最後に読めた内容 { text, sha, items, preamble }
@@ -438,6 +442,14 @@
       run.title = 'Windows では実行するコマンド。ここではコピーだけ';
       meta.append(run);
     }
+    const vars = extractVariables(it.body);
+    if (vars.length) {
+      const v = document.createElement('span');
+      v.className = 'chip vars';
+      v.textContent = '{ } 変数';
+      v.title = 'コピーの前に入力：' + vars.map((x) => x.name).join('、');
+      meta.append(v);
+    }
     for (const t of it.tags) meta.append(tagButton(t, {}));
     const preview = document.createElement('div');
     preview.className = 'preview';
@@ -445,7 +457,7 @@
     copyBtn.append(title);
     if (meta.childElementCount) copyBtn.append(meta);
     copyBtn.append(preview);
-    copyBtn.setAttribute('aria-label', it.title + ' をコピー' + (it.type === 'run' ? '（run・実行はしません）' : ''));
+    copyBtn.setAttribute('aria-label', it.title + ' をコピー' + (it.type === 'run' ? '（run・実行はしません）' : '') + (vars.length ? '（変数を入力）' : ''));
     copyBtn.addEventListener('click', () => copySnippet(it));
     copyBtn.addEventListener('keydown', (ev) => {
       if (ev.target === copyBtn && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); copySnippet(it); }
@@ -550,14 +562,81 @@
     ta.remove();
     return ok;
   }
-  async function copySnippet(it) {
-    const ok = await writeClipboard(it.body);
+  // 変数のある件は、入力欄を出してから置き換えた本文をコピーする
+  function copySnippet(it) {
+    const vars = extractVariables(it.body);
+    if (vars.length) openVars(it, vars);
+    else copyText(it, it.body);
+  }
+  async function copyText(it, text) {
+    const ok = await writeClipboard(text);
     if (!ok) { toast('コピーできませんでした', true); return; }
     if (navigator.vibrate) navigator.vibrate(15);
     toast(it.type === 'run'
       ? 'コマンドをコピーしました（実行はしません）：' + it.title
       : 'コピーしました：' + it.title);
   }
+
+  // ---- 変数の入力 ----
+  // run の件も、web では実行しないので paste と同じ置き換えでコピーする（人が貼るのは本文だけ）。
+  // ただし Windows と同じく、run の値に改行があればエラーにする
+  let varsTarget = null; // { it, vars }
+  function openVars(it, vars) {
+    varsTarget = { it: it, vars: vars };
+    els.varsTitle.textContent = it.title;
+    els.varsNote.textContent = it.type === 'run'
+      ? '値を入れて、置き換えた本文をコピーします（実行はしません）'
+      : '値を入れて、置き換えた本文をコピーします';
+    els.varsError.hidden = true;
+    const inputs = vars.map((v, i) => {
+      const input = document.createElement('input');
+      input.name = 'var' + i;
+      input.type = /url/i.test(v.name) ? 'url' : 'text';
+      input.value = v.default;
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.setAttribute('autocapitalize', 'off');
+      input.enterKeyHint = i < vars.length - 1 ? 'next' : 'done';
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' || ev.isComposing) return;
+        ev.preventDefault();
+        if (i < vars.length - 1) inputs[i + 1].focus();
+        else els.varsForm.requestSubmit();
+      });
+      return input;
+    });
+    els.varsFields.replaceChildren(...inputs.map((input, i) => {
+      const label = document.createElement('label');
+      label.append(vars[i].name, input);
+      return label;
+    }));
+    els.vars.showModal();
+    inputs[0].focus();
+  }
+  function varValues() {
+    const values = {};
+    varsTarget.vars.forEach((v, i) => { values[v.name] = els.varsForm.elements['var' + i].value; });
+    return values;
+  }
+  els.varsForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    if (!varsTarget) return;
+    const { it } = varsTarget;
+    const values = varValues();
+    if (it.type === 'run') {
+      const bad = runValueError(it.body, values);
+      if (bad !== null) {
+        els.varsError.textContent = '「' + bad + '」の値に改行は入れられません（run）';
+        els.varsError.hidden = false;
+        return;
+      }
+    }
+    varsTarget = null;
+    els.vars.close();
+    copyText(it, substitutePaste(it.body, values));
+  });
+  els.varsCancel.addEventListener('click', () => els.vars.close());
+  els.vars.addEventListener('close', () => { varsTarget = null; els.varsFields.replaceChildren(); });
 
   // ---- 読み込み ----
   function readyStatus(fetchedAt, source, note) {
@@ -876,6 +955,8 @@
   // 編集中の件を差し替えた一覧で調べ、この件のエラーだけを出す
   function validateForm() {
     if (!editing) return true;
+    const names = extractVariables(F.body.value).map((v) => v.name);
+    els.bodyVarsNames.textContent = names.length ? '。この本文の変数：' + names.join('、') : '';
     const list = currentItems().slice();
     const v = formValues();
     let idx = editing.uid === null ? -1 : indexOfUid(list, editing.uid);
