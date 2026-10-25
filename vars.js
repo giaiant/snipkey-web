@@ -50,28 +50,34 @@
     return replaceVariables(body, (v) => valueOf(values, v, defaults));
   }
 
-  // run の値に使えないもの（改行）を調べる。問題が無ければ null、あれば変数の名前
-  function runValueError(body, values) {
+  // run の値に使えないものを調べる。改行はどのシェルでも、" は cmd で（set の囲みが閉じるため）。
+  // 問題が無ければ null、あればエラーの文
+  function runValueError(body, values, shell) {
     const vars = extractVariables(body);
     const defaults = new Map(vars.map((v) => [v.name, v.default]));
-    const bad = vars.find((v) => /[\r\n]/.test(valueOf(values, v, defaults)));
-    return bad ? bad.name : null;
+    for (const v of vars) {
+      const val = valueOf(values, v, defaults);
+      if (/[\r\n]/.test(val)) return '「' + v.name + '」の値に改行は入れられません（run）';
+      if (shell === 'cmd' && val.includes('"')) return '「' + v.name + '」の値に " は入れられません（run・cmd）';
+    }
+    return null;
   }
 
   // run：値をシェルの変数として先頭で定義し、本文ではそれを参照する。変数が無ければ本文のまま。
-  // shell は powershell（既定）・pwsh・cmd。値に改行があれば Error を投げる
+  // shell は powershell（既定）・pwsh・cmd。使えない値（runValueError）があれば Error を投げる
   function substituteRun(body, values, shell) {
     const vars = extractVariables(body);
     if (vars.length === 0) return String(body);
-    const bad = runValueError(body, values);
-    if (bad !== null) throw new Error('「' + bad + '」の値に改行は入れられません（run）');
+    const bad = runValueError(body, values, shell);
+    if (bad !== null) throw new Error(bad);
     const defaults = new Map(vars.map((v) => [v.name, v.default]));
     const cmd = shell === 'cmd';
     const head = vars.map((v, i) => {
       const val = valueOf(values, v, defaults);
       return cmd
         ? 'set "SNIPKEY_VAR' + (i + 1) + '=' + val.replace(/%/g, '%%') + '"'
-        : '$snipkeyVar' + (i + 1) + " = '" + val.replace(/'/g, "''") + "'";
+        // PowerShell は ‘ ’ ‚ ‛（U+2018〜U+201B）も ' と同じに扱うので、どれも2つ重ねる
+        : '$snipkeyVar' + (i + 1) + " = '" + val.replace(/['‘-‛]/g, '$&$&') + "'";
     });
     const text = replaceVariables(body, (v, n) => (cmd ? '%SNIPKEY_VAR' + n + '%' : '$($snipkeyVar' + n + ')'));
     return head.join('\n') + '\n' + text;

@@ -36,9 +36,15 @@ test('値の $ や $& は置き換えの記号として読まない', () => {
 });
 
 test('run の値に改行があればエラーにする', () => {
-  assert.equal(runValueError('echo {{a}} {{b}}', { a: 'x', b: '1\n2' }), 'b');
-  assert.equal(runValueError('echo {{a}}', { a: 'x' }), null);
+  assert.match(runValueError('echo {{a}} {{b}}', { a: 'x', b: '1\n2' }, 'powershell'), /「b」.*改行/);
+  assert.equal(runValueError('echo {{a}}', { a: 'x' }, 'powershell'), null);
   assert.throws(() => substituteRun('echo {{a}}', { a: '1\r\n2' }, 'cmd'), /改行/);
+});
+
+test('cmd の値に " があればエラーにする（powershell では使える）', () => {
+  assert.match(runValueError('echo "{{a}}"', { a: 'x" & calc & "' }, 'cmd'), /「a」.*"/);
+  assert.throws(() => substituteRun('echo "{{a}}"', { a: 'x"' }, 'cmd'), /"/);
+  assert.equal(runValueError('echo "{{a}}"', { a: 'x"' }, 'pwsh'), null);
 });
 
 test('shell が決まっていない値なら powershell として扱う', () => {

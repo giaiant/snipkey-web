@@ -579,7 +579,7 @@
 
   // ---- 変数の入力 ----
   // run の件も、web では実行しないので paste と同じ置き換えでコピーする（人が貼るのは本文だけ）。
-  // ただし Windows と同じく、run の値に改行があればエラーにする
+  // ただし Windows と同じく、run で使えない値（改行、cmd の "）はエラーにする
   let varsTarget = null; // { it, vars }
   function openVars(it, vars) {
     varsTarget = { it: it, vars: vars };
@@ -624,9 +624,9 @@
     const { it } = varsTarget;
     const values = varValues();
     if (it.type === 'run') {
-      const bad = runValueError(it.body, values);
+      const bad = runValueError(it.body, values, it.shell);
       if (bad !== null) {
-        els.varsError.textContent = '「' + bad + '」の値に改行は入れられません（run）';
+        els.varsError.textContent = bad;
         els.varsError.hidden = false;
         return;
       }
